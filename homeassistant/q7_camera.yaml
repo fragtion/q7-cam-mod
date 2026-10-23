@@ -1,0 +1,160 @@
+# =============================================================================
+# q7-cam-mod: basic Home Assistant package for one Q7 camera running camd.
+#
+# Sensors come from camd's webhook pushes (on every change + a heartbeat), controls
+# call camd's HTTP API. No automations - build your own on top of these entities.
+#
+# Setup:
+#   1. Put this file in /config/packages/ (configuration.yaml needs
+#        homeassistant:
+#          packages: !include_dir_named packages
+#      ) and replace every 192.168.1.100 with your camera's IP (give it a fixed DHCP lease).
+#   2. Pick your own webhook id (any long random string) below, then in the camera's web UI
+#      (http://<camera>:8080/ui -> Settings -> Network & time) set
+#        webhook = http://<home-assistant>:8123/api/webhook/<that id>
+#      and save. (Or once: http://<camera>:8080/settings?webhook=<url-encoded URL>)
+#   3. Restart Home Assistant (or reload Template entities + RESTful commands).
+#   4. Video: Settings -> Devices & services -> Add integration -> "MJPEG IP Camera"
+#        MJPEG URL:        http://192.168.1.100:8080/stream
+#        Still image URL:  http://192.168.1.100:8080/snapshot
+# =============================================================================
+
+rest_command:
+  # any camd setting, e.g. query: "ir_mode=on". save=0 keeps it in RAM only (no SD card write);
+  # drop it to also store the value in q7cam.ini on the card.
+  q7_camera_setting:
+    url: "http://192.168.1.100:8080/settings?{{ query }}&save=0"
+    timeout: 5
+  q7_camera_record:
+    url: "http://192.168.1.100:8080/record?mode={{ mode }}"
+    timeout: 5
+  q7_camera_reboot:
+    url: "http://192.168.1.100:8080/reboot?confirm=1"
+    timeout: 5
+
+template:
+  - triggers:
+      - trigger: webhook
+        webhook_id: q7cam_CHANGE_ME_to_a_long_random_string
+        allowed_methods: [POST]
+        local_only: true
+        id: hook
+      - trigger: time_pattern
+        minutes: "/1"
+        id: tick
+    sensor:
+      - name: "Q7 camera last seen"
+        unique_id: q7_camera_last_seen
+        device_class: timestamp
+        icon: mdi:heart-pulse
+        state: "{{ now().isoformat() if trigger.id == 'hook' else this.state }}"
+        attributes:
+          uptime: "{{ trigger.json.uptime if trigger.id == 'hook' else this.attributes.get('uptime') }}"
+          fps: "{{ trigger.json.fps if trigger.id == 'hook' else this.attributes.get('fps') }}"
+          sd_free_mb: "{{ trigger.json.sd_free_mb if trigger.id == 'hook' else this.attributes.get('sd_free_mb') }}"
+          ir_mode: "{{ trigger.json.ir_mode if trigger.id == 'hook' else this.attributes.get('ir_mode') }}"
+          version: "{{ trigger.json.version if trigger.id == 'hook' else this.attributes.get('version') }}"
+      # mean picture brightness 0-255
+      - name: "Q7 camera brightness"
+        unique_id: q7_camera_brightness
+        icon: mdi:brightness-6
+        state_class: measurement
+        state: "{{ trigger.json.brightness if trigger.id == 'hook' else this.state }}"
+      # blocks of the 40x30 grid that changed (peak since the last push); compare with motion_blocks
+      - name: "Q7 camera motion level"
+        unique_id: q7_camera_motion_level
+        icon: mdi:motion-sensor
+        state_class: measurement
+        state: "{{ trigger.json.motion_peak if trigger.id == 'hook' else this.state }}"
+      - name: "Q7 camera sound level"
+        unique_id: q7_camera_sound_level
+        unit_of_measurement: dB
+        icon: mdi:waveform
+        state_class: measurement
+        state: "{{ trigger.json.sound_peak if trigger.id == 'hook' else this.state }}"
+      - name: "Q7 camera last clip"
+        unique_id: q7_camera_last_clip
+        icon: mdi:filmstrip
+        state: "{{ (trigger.json.last_clip or 'none') if trigger.id == 'hook' else this.state }}"
+      - name: "Q7 camera recording mode"
+        unique_id: q7_camera_recording_mode
+        icon: mdi:record-circle-outline
+        state: "{{ trigger.json.rec_mode | default('off') if trigger.id == 'hook' else this.state }}"
+      - name: "Q7 camera Wi-Fi signal"
+        unique_id: q7_camera_wifi_signal
+        device_class: signal_strength
+        unit_of_measurement: dBm
+        state_class: measurement
+        state: "{{ (trigger.json.wifi_dbm | default(0) or none) if trigger.id == 'hook' else this.state }}"
+      # the voltage on the battery terminals (the supply voltage if you power it there)
+      - name: "Q7 camera voltage"
+        unique_id: q7_camera_voltage
+        device_class: voltage
+        unit_of_measurement: V
+        state_class: measurement
+        state: >
+          {{ ((trigger.json.battery_mv | default(-1)) / 1000) | round(2)
+             if trigger.id == 'hook' and (trigger.json.battery_mv | default(-1)) > 0
+             else (none if trigger.id == 'hook' else this.state) }}
+        attributes:
+          charger: "{{ trigger.json.charger | default(false) if trigger.id == 'hook' else this.attributes.get('charger') }}"
+          status: "{{ trigger.json.battery_status | default('unknown') if trigger.id == 'hook' else this.attributes.get('status') }}"
+      - name: "Q7 camera battery"
+        unique_id: q7_camera_battery
+        device_class: battery
+        unit_of_measurement: "%"
+        state_class: measurement
+        state: >
+          {{ (trigger.json.battery_pct if (trigger.json.battery_pct | default(-1)) >= 0 else none)
+             if trigger.id == 'hook' else this.state }}
+    binary_sensor:
+      - name: "Q7 camera motion"
+        unique_id: q7_camera_motion
+        device_class: motion
+        state: "{{ trigger.json.motion | default(false) if trigger.id == 'hook' else this.state == 'on' }}"
+        # unavailable when the camera hasn't pushed for 100 s (heartbeat is 30 s)
+        availability: &q7_alive >
+          {% set seen = as_datetime(states('sensor.q7_camera_last_seen'), none) %}
+          {{ trigger.id == 'hook' or (seen is not none and (now() - seen).total_seconds() < 100) }}
+      - name: "Q7 camera sound"
+        unique_id: q7_camera_sound
+        device_class: sound
+        state: "{{ trigger.json.sound | default(false) if trigger.id == 'hook' else this.state == 'on' }}"
+        availability: *q7_alive
+      - name: "Q7 camera night vision"
+        unique_id: q7_camera_night_vision
+        icon: mdi:weather-night
+        state: "{{ trigger.json.night | default(false) if trigger.id == 'hook' else this.state == 'on' }}"
+        availability: *q7_alive
+      - name: "Q7 camera recording"
+        unique_id: q7_camera_recording
+        icon: mdi:record-rec
+        state: "{{ trigger.json.recording | default(false) if trigger.id == 'hook' else this.state == 'on' }}"
+        availability: *q7_alive
+
+  # Controls. Each select shows what the camera last reported and sends the choice to camd.
+  - select:
+      - name: "Q7 camera night vision mode"
+        unique_id: q7_camera_ir_mode_select
+        icon: mdi:weather-night
+        options: "{{ ['auto', 'on', 'off'] }}"
+        state: "{{ state_attr('sensor.q7_camera_last_seen', 'ir_mode') or 'auto' }}"
+        select_option:
+          - action: rest_command.q7_camera_setting
+            data:
+              query: "ir_mode={{ option }}"
+      - name: "Q7 camera recording"
+        unique_id: q7_camera_record_select
+        icon: mdi:record-rec
+        options: "{{ ['off', 'continuous', 'motion'] }}"
+        state: "{{ states('sensor.q7_camera_recording_mode') if states('sensor.q7_camera_recording_mode') in ['off', 'continuous', 'motion'] else 'off' }}"
+        select_option:
+          - action: rest_command.q7_camera_record
+            data:
+              mode: "{{ option }}"
+    button:
+      - name: "Q7 camera reboot"
+        unique_id: q7_camera_reboot
+        icon: mdi:restart
+        press:
+          - action: rest_command.q7_camera_reboot

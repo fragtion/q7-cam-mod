@@ -1,0 +1,42 @@
+# Example dashboard card for the q7_camera.yaml package (paste into a dashboard: Edit ->
+# Add card -> Manual). camera.q7_camera is the MJPEG IP Camera integration's entity; rename
+# it here if yours is called something else.
+type: vertical-stack
+cards:
+  - type: picture-entity
+    entity: camera.q7_camera
+    camera_view: live
+    show_state: false
+    name: Q7
+  - type: glance
+    entities:
+      - entity: binary_sensor.q7_camera_motion
+        name: Motion
+      - entity: binary_sensor.q7_camera_sound
+        name: Sound
+      - entity: binary_sensor.q7_camera_night_vision
+        name: IR
+      - entity: binary_sensor.q7_camera_recording
+        name: Rec
+  - type: entities
+    entities:
+      - entity: select.q7_camera_night_vision_mode
+        name: Night vision
+      - entity: select.q7_camera_recording
+        name: Recording
+      - entity: sensor.q7_camera_motion_level
+        name: Motion level
+      - entity: sensor.q7_camera_sound_level
+        name: Sound level
+      - entity: sensor.q7_camera_brightness
+        name: Brightness
+      - entity: sensor.q7_camera_wi_fi_signal
+        name: Wi-Fi
+      - entity: sensor.q7_camera_voltage
+        name: Voltage
+      - entity: sensor.q7_camera_last_clip
+        name: Last clip
+      - entity: sensor.q7_camera_last_seen
+        name: Last seen
+      - entity: button.q7_camera_reboot
+        name: Reboot

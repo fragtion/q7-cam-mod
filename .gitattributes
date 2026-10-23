@@ -1,0 +1,17 @@
+* text=auto
+*.sh text eol=lf
+*.c text eol=lf
+*.py text eol=lf
+*.html text eol=lf
+*.yaml text eol=lf
+*.md text eol=lf
+sdcard/q7mod/use_camd binary
+sdcard/q7mod/camd binary
+sdcard/q7mod/audiod binary
+sdcard/q7mod/busybox binary
+sdcard/q7mod/gpiodump binary
+sdcard/q7mod/fsck.fat binary
+firmware/zImage-* binary
+*.bin binary
+*.so.* binary
+*.png binary

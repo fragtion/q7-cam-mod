@@ -1,0 +1,8 @@
+src/out/
+src/libs/*.so
+*.b64
+*.tmp
+__pycache__/
+# never commit real Wi-Fi credentials
+wifi.txt
+wifi.txt.keep

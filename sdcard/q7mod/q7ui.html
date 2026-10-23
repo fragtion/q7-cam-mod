@@ -1,0 +1,232 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Q7 Camera</title>
+<style>
+:root{--bg:#111;--card:#1c1c1c;--fg:#eee;--dim:#999;--acc:#3a8ee6;--on:#2a7;--warn:#c63}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font:14px/1.4 system-ui,sans-serif;margin:0;padding:12px;max-width:960px;margin:auto}
+h1{font-size:18px;margin:4px 0 10px}h2{font-size:15px;margin:0 0 8px;color:var(--dim);font-weight:600}
+.card{background:var(--card);border-radius:10px;padding:12px;margin-bottom:12px}
+img#live{width:100%;border-radius:8px;background:#000;display:block;aspect-ratio:4/3}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.pill{padding:4px 10px;border-radius:99px;background:#333;font-size:13px}
+.pill.on{background:var(--on)}.pill.warn{background:var(--warn)}
+button,select,input{font:inherit;color:var(--fg);background:#333;border:1px solid #444;border-radius:7px;padding:7px 10px}
+button{cursor:pointer}button.primary{background:var(--acc);border-color:var(--acc)}
+.meter{height:8px;background:#333;border-radius:4px;overflow:hidden;position:relative;flex:1;min-width:120px}
+.meter>i{display:block;height:100%;background:var(--acc)}
+.meter>b{position:absolute;top:-2px;bottom:-2px;width:2px;background:#fff}
+table{width:100%;border-collapse:collapse}td{padding:5px 4px;border-top:1px solid #2a2a2a;vertical-align:middle}
+td.k{width:45%}td small{color:var(--dim);display:block}
+td input[type=number]{width:90px}td input[type=text]{width:100%}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px}
+.stat{background:#151515;border-radius:8px;padding:8px}.stat b{display:block;font-size:20px}
+.stat span{color:var(--dim);font-size:12px}
+#msg{color:var(--dim);min-height:1.4em}
+a{color:var(--acc)}
+td.n{word-break:break-all}td.r{text-align:right;white-space:nowrap;color:var(--dim)}td.a{text-align:right;white-space:nowrap}
+td.a button{padding:4px 8px;margin-left:4px}
+#crumbs a{cursor:pointer}
+tr.imp td.n,tr.imp td.n a{color:#e8a33d}tr.imp td.n:after{content:" ⚠ system";font-size:11px;color:#c63}
+.modal{position:fixed;inset:0;background:rgba(0,0,0,.75);display:none;align-items:center;justify-content:center;padding:12px;z-index:9}
+.modal.open{display:flex}.modal .card{width:100%;max-width:900px;max-height:100%;overflow:auto;margin:0}
+#ed_text{width:100%;height:60vh;background:#0c0c0c;color:var(--fg);border:1px solid #444;border-radius:7px;padding:8px;font:12px/1.4 ui-monospace,monospace;white-space:pre;tab-size:4}
+#pl_img{width:100%;background:#000;border-radius:8px;display:block;aspect-ratio:4/3}
+</style></head><body>
+<h1>📷 Q7 Camera</h1>
+
+<div class="card">
+  <img id="live" src="/stream" alt="live video">
+  <div class="row" style="margin-top:8px">
+    <span id="p_motion" class="pill">Motion</span>
+    <span id="p_sound" class="pill">Sound</span>
+    <span id="p_ir" class="pill">IR</span>
+    <span id="p_rec" class="pill">Rec</span>
+    <span style="flex:1"></span>
+    <button id="irb" onclick="cycleIR()" title="Night vision: Auto → On → Off">🌙 IR …</button>
+    <button id="snd" onclick="toggleSound()">🔈 Listen</button>
+    <a href="/snapshot" target="_blank"><button>📸 Snapshot</button></a>
+    <button id="rb_c" onclick="setRec('continuous')" title="Record continuously to the SD card (same as a short tap on the camera's button)">⏺ Record</button>
+    <button id="rb_m" onclick="setRec('motion')" title="Record clips while there's motion (same as holding the camera's button ~3 s)">⏺ Motion rec</button>
+    <button onclick="reboot()" title="Restart the camera (back in about a minute)">⟳ Reboot</button>
+  </div>
+</div>
+
+<div class="card">
+  <h2>Live readings</h2>
+  <div class="grid">
+    <div class="stat"><b id="s_bright">–</b><span>Brightness (0–255)</span></div>
+    <div class="stat"><b id="s_motion">–</b><span>Changed blocks (peak)</span></div>
+    <div class="stat"><b id="s_sound">–</b><span>Sound peak dBFS</span></div>
+    <div class="stat"><b id="s_fps">–</b><span>Capture fps</span></div>
+    <div class="stat"><b id="s_sd">–</b><span>SD free</span></div>
+    <div class="stat"><b id="s_up">–</b><span>Uptime</span></div>
+    <div class="stat"><b id="s_wifi">–</b><span>Wi-Fi signal</span></div>
+    <div class="stat"><b id="s_volt">–</b><span id="s_volt_l">Supply / battery voltage</span></div>
+    <div class="stat"><b id="s_batt">–</b><span>Battery (driver's estimate)</span></div>
+  </div>
+  <div class="row" style="margin-top:10px"><span style="width:70px">Motion</span><div class="meter" id="m_motion"><i></i><b></b></div></div>
+  <div class="row" style="margin-top:6px"><span style="width:70px">Sound</span><div class="meter" id="m_sound"><i></i><b></b></div></div>
+  <div class="row" style="margin-top:6px"><span style="width:70px">Light</span><div class="meter" id="m_bright"><i></i><b></b></div></div>
+</div>
+
+<div class="card">
+  <h2>Settings <small style="font-weight:400">— saved to the SD card (q7cam.ini)</small></h2>
+  <table id="settings"></table>
+  <div class="row" style="margin-top:10px"><button class="primary" onclick="save()">Save changes</button><span id="msg"></span></div>
+</div>
+
+<div class="card">
+  <h2>Recordings</h2>
+  <table id="recs"><tr><td>Loading…</td></tr></table>
+</div>
+
+<div class="card">
+  <h2>Files <small style="font-weight:400">— SD card. <span style="color:#e8a33d">Orange</span> = system files (boot.sh, wifi.txt, q7mod/): a broken or missing one can stop the camera from starting or joining Wi-Fi.</small></h2>
+  <div class="row"><span id="crumbs" style="flex:1"></span>
+    <button onclick="newFile()">＋ New file</button>
+    <button onclick="$('up').click()">⇪ Upload</button><input type="file" id="up" multiple style="display:none" onchange="upload(this.files)">
+    <button onclick="loadDir(cwd)">⟳</button></div>
+  <table id="files" style="margin-top:6px"><tr><td>Loading…</td></tr></table>
+  <div id="fmsg" style="color:var(--dim);min-height:1.4em;margin-top:6px"></div>
+</div>
+
+<div class="modal" id="ed"><div class="card">
+  <div class="row"><b id="ed_name" style="flex:1;word-break:break-all"></b>
+    <button class="primary" onclick="saveFile()">Save</button><button onclick="closeModal('ed')">Close</button></div>
+  <textarea id="ed_text" spellcheck="false" style="margin-top:8px"></textarea>
+  <div id="ed_msg" style="color:var(--dim);min-height:1.4em"></div>
+</div></div>
+
+<div class="modal" id="pl"><div class="card">
+  <div class="row"><b id="pl_name" style="flex:1;word-break:break-all"></b>
+    <button onclick="playClip(plPath)">↺ Replay</button><a id="pl_dl"><button>⇩ Download</button></a><button onclick="closeModal('pl')">Close</button></div>
+  <img id="pl_img" style="margin-top:8px" alt="clip">
+</div></div>
+
+<script>
+var S={},dirty={};
+var GROUPS=[["Night vision","ir_|night_"],["Motion","motion_"],["Sound","sound_"],["Recording","record_"],["Video","width|height|quality|stream_fps|idle_fps|capture_fps|sensor_|auto_reboot"],["Network & time","webhook|heartbeat_s|tz|ntp_servers|port"]];
+function $(i){return document.getElementById(i)}
+function esc(s){return String(s).replace(/[&<>"']/g,function(c){return'&#'+c.charCodeAt(0)+';'})}
+function groupOf(k){for(var g of GROUPS)if(new RegExp('^('+g[1]+')').test(k))return g[0];return"Other"}
+function input(k,s){
+  if(k=="ir_mode")return'<select data-k="ir_mode">'+["auto","on","off"].map(function(v){return'<option'+(v==s.value?' selected':'')+'>'+v+'</option>'}).join('')+'</select>';
+  if(s.type=="int"&&s.min==0&&s.max==1)return'<input type="checkbox" data-k="'+k+'"'+(s.value?' checked':'')+'>';
+  if(s.type=="int")return'<input type="number" data-k="'+k+'" min="'+s.min+'" max="'+s.max+'" value="'+s.value+'">';
+  return'<input type="text" data-k="'+k+'" value="'+esc(s.value)+'">';
+}
+function loadSettings(){fetch('/settings').then(function(r){return r.json()}).then(function(j){
+  S=j;dirty={};var by={};
+  for(var k in j){var g=groupOf(k);(by[g]=by[g]||[]).push(k)}
+  var h='';for(var g of GROUPS.map(function(x){return x[0]}).concat(["Other"]))if(by[g]){
+    h+='<tr><td colspan=2 style="color:var(--acc);font-weight:600;padding-top:12px">'+g+'</td></tr>';
+    for(var k of by[g]){var s=j[k];h+='<tr><td class="k">'+k+'<small>'+esc(s.help)+(s.restart?' (restart)':'')+'</small></td><td>'+input(k,s)+'</td></tr>'}
+  }
+  $('settings').innerHTML=h;
+  document.querySelectorAll('#settings [data-k]').forEach(function(el){el.onchange=function(){
+    dirty[el.dataset.k]=el.type=="checkbox"?(el.checked?1:0):el.value;$('msg').textContent=Object.keys(dirty).length+' unsaved change(s)'}});
+})}
+function save(){var q=Object.keys(dirty).map(function(k){return encodeURIComponent(k)+'='+encodeURIComponent(dirty[k])}).join('&');
+  if(!q){$('msg').textContent='Nothing to save';return}
+  fetch('/settings?'+q).then(function(r){return r.json()}).then(function(j){
+    $('msg').textContent='Saved: '+(j.ok.join(', ')||'none')+(j.rejected.length?' — rejected: '+j.rejected.join(', '):'');
+    var restart=j.ok.some(function(k){return S[k]&&S[k].restart});if(restart)$('msg').textContent+=' — power-cycle to apply';
+    loadSettings()})}
+function meter(id,frac,mark){var m=$(id);m.firstChild.style.width=Math.max(0,Math.min(1,frac))*100+'%';m.lastChild.style.left=Math.max(0,Math.min(1,mark))*100+'%'}
+function pill(id,on,txt,cls){var p=$(id);p.className='pill'+(on?' '+(cls||'on'):'');p.textContent=txt}
+function fmtUp(s){s=Math.floor(s);var d=Math.floor(s/86400),h=Math.floor(s%86400/3600),m=Math.floor(s%3600/60);return(d?d+'d ':'')+(h?h+'h ':'')+m+'m'}
+function poll(){fetch('/status.json').then(function(r){return r.json()}).then(function(j){
+  pill('p_motion',j.motion,j.motion?'Motion!':'No motion');
+  pill('p_sound',j.sound,j.sound_listening?(j.sound?'Sound!':'Quiet'):'Sound off');
+  pill('p_ir',j.night,'IR '+(j.night?'on':'off')+' ('+j.ir_mode+')','warn');
+  irMode=j.ir_mode;var ib=$('irb');ib.textContent='🌙 IR '+{auto:'Auto',on:'On',off:'Off'}[j.ir_mode];ib.className=j.night?'primary':'';
+  pill('p_rec',j.recording||j.rec_mode!='off',(j.recording?'● Recording':'Not recording')+(j.rec_mode!='off'?' ('+j.rec_mode+')':''),'warn');
+  recMode=j.rec_mode;$('rb_c').className=j.rec_mode=='continuous'?'primary':'';$('rb_m').className=j.rec_mode=='motion'?'primary':'';
+  $('s_wifi').textContent=j.wifi_dbm?j.wifi_dbm+' dBm':'–';
+  $('s_volt').textContent=j.battery_mv>0?(j.battery_mv/1000).toFixed(2)+' V':'–';
+  $('s_volt_l').textContent=j.charger?'Battery voltage (charger connected)':'Supply / battery voltage';
+  $('s_batt').textContent=j.battery_pct>=0?j.battery_pct+'% · '+j.battery_status.toLowerCase():'–';
+  $('s_bright').textContent=j.brightness;$('s_motion').textContent=j.motion_score+' ('+j.motion_peak+')';
+  $('s_sound').textContent=j.sound_peak+(j.sound_listening?'':' (trigger off)');$('s_fps').textContent=j.fps.toFixed(1)+' @'+j.width+'×'+j.height;
+  $('s_sd').textContent=j.sd_free_mb>=0?(j.sd_free_mb/1024).toFixed(1)+' GB':'no SD';$('s_up').textContent=fmtUp(j.uptime);
+  var mt=S.motion_blocks?S.motion_blocks.value:6;meter('m_motion',j.motion_peak/(mt*3),1/3);
+  var sd=S.sound_db?S.sound_db.value:-30;meter('m_sound',(j.sound_peak+90)/90,(sd+90)/90);
+  var on=S.ir_on_below?S.ir_on_below.value:25,off=S.ir_off_above?S.ir_off_above.value:80;meter('m_bright',j.brightness/255,(j.night?off:on)/255);
+}).catch(function(){pill('p_motion',false,'offline')})}
+function loadRecs(){fetch('/recordings').then(function(r){return r.json()}).then(function(a){
+  if(!a.length){$('recs').innerHTML='<tr><td>No recordings'+(S.record_enabled&&!S.record_enabled.value?' (recording is off)':'')+'</td></tr>';return}
+  $('recs').innerHTML=a.slice(0,50).map(function(f){var p=JSON.stringify('/mnt/mmc/RECORD/'+f.name);return'<tr><td class="n">'+esc(f.name)+'</td><td class="r">'+fmtSize(f.size)+'</td><td class="a"><button onclick=\'playClip('+esc(p)+')\'>▶ Play</button><a href="/rec/'+encodeURIComponent(f.name)+'"><button>⇩</button></a><button onclick="delRec(\''+esc(f.name)+'\')">Delete</button></td></tr>'}).join('')+(a.length>50?'<tr><td colspan=3>…and '+(a.length-50)+' more</td></tr>':'')})}
+/* ---- file manager: camd's /fs API, everything under /mnt/mmc ---- */
+var ROOT='/mnt/mmc',cwd=ROOT,edPath=null,plPath=null;
+var TEXT=/\.(sh|txt|ini|conf|cfg|html?|js|json|css|md|log|keep|csv|xml|py)$/i;
+function fmtSize(b){return b<1024?b+' B':b<1048576?(b/1024).toFixed(1)+' KB':(b/1048576).toFixed(1)+' MB'}
+function fmtTime(t){if(!t)return'';var d=new Date(t*1000),p=function(n){return('0'+n).slice(-2)};
+  return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate())+' '+p(d.getHours())+':'+p(d.getMinutes())}
+function fsUrl(p,extra){return'/fs?path='+encodeURIComponent(p)+(extra||'')}
+function loadDir(dir){cwd=dir;
+  var parts=dir.slice(ROOT.length).split('/').filter(Boolean),acc=ROOT,h='<a onclick="loadDir(ROOT)">SD card</a>';
+  parts.forEach(function(x){acc+='/'+x;h+=' / <a onclick=\'loadDir('+esc(JSON.stringify(acc))+')\'>'+esc(x)+'</a>'});$('crumbs').innerHTML=h;
+  fetch(fsUrl(dir)).then(function(r){if(!r.ok)throw r.status;return r.json()}).then(function(a){
+    var rows=a.map(function(f){var p=dir+'/'+f.name,q=esc(JSON.stringify(p)),act='',tr=isImportant(p)?'<tr class="imp">':'<tr>';
+      if(f.dir)return tr+'<td class="n">📁 <a onclick=\'loadDir('+q+')\'>'+esc(f.name)+'</a></td><td class="r"></td><td class="r">'+fmtTime(f.mtime)+'</td><td class="a"><button onclick=\'delPath('+q+',1)\'>Delete</button></td></tr>';
+      if(/\.avi$/i.test(f.name))act+='<button onclick=\'playClip('+q+')\'>▶ Play</button>';
+      if(TEXT.test(f.name)||(f.name.indexOf('.')<0&&f.size<65536)||f.size==0)act+='<button onclick=\'editFile('+q+')\'>✎ Edit</button>';
+      act+='<a href="'+fsUrl(p,'&dl=1')+'"><button>⇩</button></a><button onclick=\'delPath('+q+')\'>Delete</button>';
+      return tr+'<td class="n">'+esc(f.name)+'</td><td class="r">'+fmtSize(f.size)+'</td><td class="r">'+fmtTime(f.mtime)+'</td><td class="a">'+act+'</td></tr>'});
+    $('files').innerHTML=rows.join('')||'<tr><td>Empty folder</td></tr>';
+  }).catch(function(e){$('files').innerHTML='<tr><td>Can\'t list '+esc(dir)+' ('+e+')</td></tr>'})}
+function openModal(id){$(id).classList.add('open')}
+function closeModal(id){$(id).classList.remove('open');if(id=='pl')$('pl_img').src=''}
+function editFile(p){edPath=p;$('ed_name').textContent=p;$('ed_text').value='Loading…';$('ed_msg').textContent='';openModal('ed');
+  fetch(fsUrl(p)).then(function(r){if(!r.ok)throw r.status;return r.text()}).then(function(t){$('ed_text').value=t})
+    .catch(function(e){$('ed_text').value='';$('ed_msg').textContent='Could not load ('+e+')'})}
+function saveFile(){var t=$('ed_text').value;
+  if(/\.sh$/.test(edPath))t=t.replace(/\r\n/g,'\n');               /* shell scripts must not get CRLF */
+  $('ed_msg').textContent='Saving…';
+  fetch(fsUrl(edPath),{method:'POST',body:t}).then(function(r){if(!r.ok)throw r.status;return r.json()})
+    .then(function(j){$('ed_msg').textContent='Saved ('+fmtSize(j.size)+')';loadDir(cwd)}).catch(function(e){$('ed_msg').textContent='Save failed ('+e+')'})}
+function newFile(){var n=prompt('New file name (in '+cwd+')');if(!n)return;if(/[\/\\]/.test(n)){alert('Just a name, no folders');return}
+  edPath=cwd+'/'+n;$('ed_name').textContent=edPath+' (new)';$('ed_text').value='';$('ed_msg').textContent='';openModal('ed')}
+async function upload(files){for(var f of files){$('fmsg').textContent='Uploading '+f.name+'…';
+    try{var r=await fetch(fsUrl(cwd+'/'+f.name),{method:'POST',body:f});if(!r.ok)throw r.status;$('fmsg').textContent='Uploaded '+f.name}
+    catch(e){$('fmsg').textContent='Upload of '+f.name+' failed ('+e+')';break}}
+  $('up').value='';loadDir(cwd)}
+/* system files: what the camera needs to boot, join Wi-Fi and run camd */
+function isImportant(p){return p==ROOT+'/boot.sh'||p==ROOT+'/wifi.txt'||p==ROOT+'/q7mod'||p.indexOf(ROOT+'/q7mod/')==0}
+function delPath(p,isDir){
+  if(isImportant(p)){var n=p.split('/').pop();
+    if(prompt('⚠ '+p+' is a SYSTEM file.\n\nWithout it the camera may not boot, join Wi-Fi or start camd, and fixing that means taking the SD card out and putting it in a computer.\n\nType the name ('+n+') to delete it anyway:')!==n)return}
+  else if(!confirm('Delete '+p+(isDir?' (folder must be empty)':'')+'?'))return;
+  fetch(fsUrl(p,'&delete=1')).then(function(r){return r.json()}).then(function(j){$('fmsg').textContent=j.deleted?'Deleted '+p:'Could not delete '+p;loadDir(cwd);loadRecs()})}
+function playClip(p){plPath=p;$('pl_name').textContent=p.split('/').pop();$('pl_dl').href=fsUrl(p,'&dl=1');openModal('pl');
+  $('pl_img').src='';setTimeout(function(){$('pl_img').src='/play?path='+encodeURIComponent(p)+'&t='+Date.now()},50)}
+document.addEventListener('keydown',function(e){if(e.key=='Escape'){closeModal('ed');closeModal('pl')}
+  if((e.ctrlKey||e.metaKey)&&e.key=='s'&&$('ed').classList.contains('open')){e.preventDefault();saveFile()}});
+var irMode='auto',recMode='off';
+function setRec(m){fetch('/record?mode='+(recMode==m?'off':m)).then(function(){poll();setTimeout(loadRecs,1500)})}
+function cycleIR(){var next={auto:'on',on:'off',off:'auto'}[irMode]||'auto';
+  fetch('/settings?ir_mode='+next).then(function(){irMode=next;poll();loadSettings()})}
+function reboot(){if(!confirm('Reboot the camera? It is back in about a minute.'))return;
+  fetch('/reboot?confirm=1').then(function(){$('msg').textContent='Rebooting — reload this page in about a minute'})}
+function delRec(n){if(confirm('Delete '+n+'?'))fetch('/rec/'+encodeURIComponent(n)+'?delete=1').then(loadRecs)}
+/* Audio: continuous ring-buffer player for audiod's raw S16LE ~8 kHz stream on :8081 */
+var ac=null,playing=false,anode=null;
+async function toggleSound(){var b=$('snd');
+  if(playing){playing=false;if(anode){try{anode.disconnect();anode.onaudioprocess=null}catch(e){}anode=null}if(ac){try{ac.close()}catch(e){}ac=null}b.textContent='🔈 Listen';b.className='';return}
+  playing=true;b.textContent='🔊 Listening';b.className='primary';
+  ac=new(window.AudioContext||window.webkitAudioContext)();try{await ac.resume()}catch(e){}
+  var SR=8000,RLEN=SR*8,ring=new Float32Array(RLEN),wtot=0,rtot=0;
+  anode=ac.createScriptProcessor(2048,0,1);
+  anode.onaudioprocess=function(e){var out=e.outputBuffer.getChannelData(0),L=out.length,base=SR/ac.sampleRate,target=SR*0.3,avail=wtot-rtot;
+    var ratio=base*(1+Math.max(-0.03,Math.min(0.03,(avail-target)/(SR*3))));
+    for(var i=0;i<L;i++){if(wtot-rtot<2){out[i]=0;continue}var i0=Math.floor(rtot),fr=rtot-i0,a=ring[i0%RLEN],c=ring[(i0+1)%RLEN];out[i]=a+(c-a)*fr;rtot+=ratio}};
+  anode.connect(ac.destination);
+  try{var resp=await fetch('http://'+location.hostname+':8081/raw');var reader=resp.body.getReader(),left=new Uint8Array(0);
+    while(playing){var rr=await reader.read();if(rr.done)break;var v=rr.value,d=new Uint8Array(left.length+v.length);d.set(left,0);d.set(v,left.length);
+      var n=d.length>>1;if(n<1){left=d;continue}var dv=new DataView(d.buffer,d.byteOffset);
+      for(var i=0;i<n;i++){ring[wtot%RLEN]=dv.getInt16(i*2,true)/32768;wtot++;if(wtot-rtot>RLEN)rtot=wtot-RLEN}left=d.slice(n*2)}
+  }catch(e){b.textContent='🔇 Audio error'}}
+loadSettings();loadRecs();loadDir(ROOT);poll();setInterval(poll,1000);setInterval(loadRecs,30000);
+</script>
+</body></html>
